@@ -234,8 +234,11 @@ export default function Step1Devis({ data, onChange, onNext }: Step1Props) {
                 </div>
                 <div className="flex justify-between text-xs" style={{ color: "#4A5170" }}>
                   <span>0%</span>
-                  <span>Moy. nationale : 48%</span>
+                  <span className="hidden sm:inline">Moy. nationale : 48%</span>
                   <span>100%</span>
+                </div>
+                <div className="text-center text-xs mt-0.5 sm:hidden" style={{ color: "#4A5170" }}>
+                  Moy. nationale : 48%
                 </div>
               </div>
               <div className="text-right flex-shrink-0">
