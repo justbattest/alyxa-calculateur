@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 interface Step1Data {
   devisRemis: number;
@@ -15,42 +15,128 @@ interface Step1Props {
   onNext: () => void;
 }
 
-function getTauxColor(taux: number) {
-  if (taux >= 80) return { color: "#10B981", glow: "rgba(16, 185, 129, 0.4)", label: "Excellent" };
-  if (taux >= 65) return { color: "#6C74E8", glow: "rgba(108, 116, 232, 0.4)", label: "Bon" };
-  if (taux >= 50) return { color: "#F59E0B", glow: "rgba(245, 158, 11, 0.4)", label: "Moyen" };
-  return { color: "#EF4444", glow: "rgba(239, 68, 68, 0.4)", label: "Faible" };
+// Moyenne nationale : 48%
+function getConversionInfo(pct: number) {
+  if (pct < 35) return {
+    color: "#FF4455", bg: "rgba(255,68,85,0.05)", borderColor: "rgba(255,68,85,0.3)",
+    badge: "En dessous de la moyenne", badgeBg: "rgba(255,68,85,0.12)", badgeColor: "#FF4455",
+    note: `Moyenne nationale : <strong>48%</strong><br/>Écart : ${48 - pct} points en dessous`,
+    barClass: "red",
+  };
+  if (pct < 52) return {
+    color: "#FF9500", bg: "rgba(255,149,0,0.05)", borderColor: "rgba(255,149,0,0.3)",
+    badge: "Dans la moyenne nationale", badgeBg: "rgba(255,149,0,0.12)", badgeColor: "#FF9500",
+    note: `Moyenne nationale : <strong>48%</strong><br/>Vous êtes dans la norme`,
+    barClass: "orange",
+  };
+  return {
+    color: "#00D68F", bg: "rgba(0,214,143,0.05)", borderColor: "rgba(0,214,143,0.3)",
+    badge: "Au-dessus de la moyenne", badgeBg: "rgba(0,214,143,0.12)", badgeColor: "#00D68F",
+    note: `Moyenne nationale : <strong>48%</strong><br/>+${pct - 48} points au-dessus`,
+    barClass: "green",
+  };
 }
 
-const inputClass = `
-  w-full px-4 py-3.5 rounded-xl text-[#EDEDEF] font-medium text-lg outline-none transition-all duration-200
-  placeholder:text-[#8A8F98] focus:ring-0
-`;
-const inputStyle = {
-  background: "rgba(255,255,255,0.05)",
-  border: "1px solid rgba(255,255,255,0.1)",
-  fontFamily: "'JetBrains Mono', monospace",
+const inputStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.04)",
+  border: "1.5px solid rgba(255,255,255,0.12)",
+  borderRadius: "12px",
+  color: "#EDEDEF",
+  fontFamily: "'Inter', sans-serif",
+  fontSize: "22px",
+  fontWeight: 700,
+  padding: "0 16px",
+  height: "52px",
+  width: "100%",
+  outline: "none",
+  transition: "border-color 0.2s, box-shadow 0.2s",
 };
-const inputFocusStyle = {
-  border: "1px solid rgba(108, 116, 232, 0.5)",
-  boxShadow: "0 0 0 3px rgba(108, 116, 232, 0.1)",
-};
+
+function NumberInput({
+  id, value, onChange, placeholder, suffix, step = 1, min = 0, max,
+}: {
+  id: string;
+  value: number;
+  onChange: (v: number) => void;
+  placeholder: string;
+  suffix: string;
+  step?: number;
+  min?: number;
+  max?: number;
+}) {
+  const handleStep = (delta: number) => {
+    const next = Math.max(min, Math.min(max ?? 999999, (value || 0) + delta));
+    onChange(next);
+  };
+  return (
+    <div className="flex items-center rounded-xl overflow-hidden"
+      style={{ background: "rgba(255,255,255,0.04)", border: "1.5px solid rgba(255,255,255,0.12)" }}>
+      <input
+        id={id}
+        type="number"
+        min={min}
+        max={max}
+        placeholder={placeholder}
+        value={value || ""}
+        onChange={e => onChange(Math.max(min, parseFloat(e.target.value) || 0))}
+        className="flex-1 bg-transparent border-none outline-none text-[#EDEDEF]"
+        style={{ fontFamily: "'Inter', sans-serif", fontSize: "22px", fontWeight: 700, padding: "0 16px", height: "52px", minWidth: 0 }}
+      />
+      <span className="px-3 text-sm font-semibold" style={{ color: "#4A5170", whiteSpace: "nowrap" }}>{suffix}</span>
+      <div className="flex flex-col" style={{ borderLeft: "1px solid rgba(255,255,255,0.07)" }}>
+        <button type="button" onClick={() => handleStep(step)}
+          className="w-10 flex items-center justify-center text-sm cursor-pointer transition-colors hover:text-[#6C74E8]"
+          style={{ height: "26px", color: "#4A5170", background: "transparent", border: "none" }}>▲</button>
+        <button type="button" onClick={() => handleStep(-step)}
+          className="w-10 flex items-center justify-center text-sm cursor-pointer transition-colors hover:text-[#6C74E8]"
+          style={{ height: "26px", color: "#4A5170", background: "transparent", border: "none", borderTop: "1px solid rgba(255,255,255,0.07)" }}>▼</button>
+      </div>
+    </div>
+  );
+}
 
 export default function Step1Devis({ data, onChange, onNext }: Step1Props) {
+  const [preciseOpen, setPreciseOpen] = useState(false);
+  const [preciseValues, setPreciseValues] = useState<string[]>(["", "", ""]);
+
   const taux = data.devisRemis > 0
-    ? Math.round((data.devisAcceptes / data.devisRemis) * 100)
-    : 0;
-  const taux_clamped = Math.min(100, taux);
-  const tauxInfo = getTauxColor(taux_clamped);
-  const isValid = data.devisRemis > 0 && data.devisAcceptes >= 0 && data.prixMoyen > 0 && data.devisAcceptes <= data.devisRemis;
+    ? Math.min(100, Math.round((data.devisAcceptes / data.devisRemis) * 100))
+    : null;
+  const info = taux !== null ? getConversionInfo(taux) : null;
 
-  const handleChange = useCallback(<K extends keyof Step1Data>(key: K, val: string) => {
-    const num = parseFloat(val) || 0;
-    onChange({ ...data, [key]: num });
+  const preciseAvg = (() => {
+    const vals = preciseValues.map(v => parseFloat(v)).filter(v => v > 0);
+    return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+  })();
+
+  const handlePreciseChange = (i: number, v: string) => {
+    const next = [...preciseValues];
+    next[i] = v;
+    setPreciseValues(next);
+    if (preciseAvg !== null && preciseOpen) {
+      onChange({ ...data, prixMoyen: preciseAvg });
+    }
+  };
+
+  const addPreciseInput = () => {
+    if (preciseValues.length < 15) setPreciseValues(v => [...v, ""]);
+  };
+
+  const togglePrecise = () => {
+    setPreciseOpen(p => !p);
+    if (!preciseOpen && preciseAvg) {
+      onChange({ ...data, prixMoyen: preciseAvg });
+    }
+  };
+
+  // Update prix moyen when precise avg changes while open
+  const effectivePrix = preciseOpen && preciseAvg ? preciseAvg : data.prixMoyen;
+
+  const isValid = data.devisRemis >= 1 && data.devisAcceptes >= 0 && effectivePrix >= 1 && data.devisAcceptes <= data.devisRemis;
+
+  const handleChange = useCallback(<K extends keyof Step1Data>(key: K, val: number) => {
+    onChange({ ...data, [key]: val });
   }, [data, onChange]);
-
-  const circumference = 2 * Math.PI * 38;
-  const offset = circumference - (taux_clamped / 100) * circumference;
 
   const container = {
     hidden: { opacity: 0 },
@@ -58,260 +144,258 @@ export default function Step1Devis({ data, onChange, onNext }: Step1Props) {
   };
   const item = {
     hidden: { opacity: 0, y: 24 },
-    show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] } }
+    show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as [number,number,number,number] } }
   };
 
+  const barColor = info?.barClass === "green"
+    ? "linear-gradient(90deg, #00B7A8, #00D68F)"
+    : info?.barClass === "orange"
+    ? "linear-gradient(90deg, #FF9500, #FFB700)"
+    : "linear-gradient(135deg, #FF4455, #FF6E7A)";
+
   return (
-    <motion.div
-      variants={container}
-      initial="hidden"
-      animate="show"
-      className="w-full max-w-xl mx-auto"
-    >
+    <motion.div variants={container} initial="hidden" animate="show" className="w-full max-w-xl mx-auto">
       {/* Title */}
       <motion.div variants={item} className="text-center mb-8">
         <div className="accent-line mx-auto mb-4" />
-        <h2
-          className="text-3xl md:text-4xl font-normal mb-3"
-          style={{ fontFamily: "'Calistoga', serif", color: "#EDEDEF" }}
-        >
-          Vos devis
+        <div className="text-xs uppercase tracking-widest mb-2"
+          style={{ color: "#6C74E8", fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, letterSpacing: "1.5px" }}>
+          Étape 1 / 2
+        </div>
+        <h2 className="text-3xl md:text-4xl font-normal mb-3"
+          style={{ fontFamily: "'Calistoga', serif", color: "#EDEDEF" }}>
+          Vos devis ce mois-ci
         </h2>
-        <p className="text-base" style={{ color: "#8A8F98" }}>
-          Combien de devis remettez-vous et acceptez-vous chaque mois ?
+        <p className="text-sm" style={{ color: "#8A8F98" }}>
+          Ces données sont utilisées uniquement pour votre calcul personnalisé. Elles ne sont pas conservées.
         </p>
       </motion.div>
 
-      {/* Live Conversion Gauge */}
-      <motion.div variants={item} className="glass-card p-6 mb-6">
-        <div className="flex items-center gap-6">
-          {/* Mini donut */}
-          <div className="relative flex-shrink-0">
-            <svg width="96" height="96" className="-rotate-90">
-              <circle cx="48" cy="48" r="38" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="8" />
-              <motion.circle
-                cx="48" cy="48" r="38"
-                fill="none"
-                stroke={tauxInfo.color}
-                strokeWidth="8"
-                strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={offset}
-                style={{
-                  filter: `drop-shadow(0 0 6px ${tauxInfo.glow})`,
-                  transition: "stroke-dashoffset 0.4s ease, stroke 0.4s ease",
-                }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <motion.span
-                key={taux_clamped}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="text-lg font-bold"
-                style={{ fontFamily: "'JetBrains Mono', monospace", color: tauxInfo.color }}
-              >
-                {taux_clamped}%
-              </motion.span>
-            </div>
-          </div>
-
-          {/* Labels */}
-          <div>
-            <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "#8A8F98", fontFamily: "'JetBrains Mono', monospace" }}>
-              Taux de conversion
-            </div>
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={tauxInfo.label}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 10 }}
-                transition={{ duration: 0.25 }}
-                className="text-2xl font-semibold"
-                style={{ color: tauxInfo.color }}
-              >
-                {tauxInfo.label}
-              </motion.div>
-            </AnimatePresence>
-            <p className="text-sm mt-1" style={{ color: "#8A8F98" }}>
-              Moyenne secteur : <span style={{ color: "#EDEDEF" }}>65%</span>
-            </p>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mt-4 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-          <motion.div
-            className="h-full rounded-full"
-            style={{ background: `linear-gradient(90deg, ${tauxInfo.color}99, ${tauxInfo.color})` }}
-            animate={{ width: `${taux_clamped}%` }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          />
-        </div>
-        <div className="flex justify-between mt-1">
-          <span className="text-xs" style={{ color: "#8A8F98", fontFamily: "'JetBrains Mono', monospace" }}>0%</span>
-          <span className="text-xs" style={{ color: "#8A8F98", fontFamily: "'JetBrains Mono', monospace" }}>100%</span>
-        </div>
-      </motion.div>
-
-      {/* Inputs */}
-      <motion.div variants={item} className="space-y-4 mb-6">
+      <div className="glass-card p-6 space-y-6">
         {/* Devis remis */}
-        <div className="glass-card p-5">
-          <label className="block text-sm font-medium mb-3" style={{ color: "#B0B5BF" }}>
-            Devis remis par mois
-            <span className="ml-2 text-xs px-2 py-0.5 rounded-full"
-              style={{ background: "rgba(108,116,232,0.15)", color: "#8B93FF", fontFamily: "'JetBrains Mono', monospace" }}
-            >
-              total
-            </span>
+        <motion.div variants={item}>
+          <label className="block text-sm font-semibold mb-2.5" style={{ color: "#EDEDEF" }}>
+            Devis remis à vos patients ce mois
           </label>
-          <div className="relative">
-            <input
-              type="number"
-              min="0"
-              placeholder="ex: 40"
-              value={data.devisRemis || ""}
-              onChange={e => handleChange("devisRemis", e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-              onFocus={e => Object.assign(e.currentTarget.style, inputFocusStyle)}
-              onBlur={e => Object.assign(e.currentTarget.style, inputStyle)}
-            />
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm"
-              style={{ color: "#8A8F98", fontFamily: "'JetBrains Mono', monospace" }}>
-              devis
-            </div>
-          </div>
-        </div>
+          <NumberInput
+            id="devis-remis"
+            value={data.devisRemis}
+            onChange={v => handleChange("devisRemis", v)}
+            placeholder="ex : 20"
+            suffix="devis / mois"
+          />
+        </motion.div>
 
         {/* Devis acceptés */}
-        <div className="glass-card p-5">
-          <label className="block text-sm font-medium mb-3" style={{ color: "#B0B5BF" }}>
-            Devis acceptés par mois
-            <span className="ml-2 text-xs px-2 py-0.5 rounded-full"
-              style={{ background: "rgba(16,185,129,0.15)", color: "#10B981", fontFamily: "'JetBrains Mono', monospace" }}
-            >
-              convertis
+        <motion.div variants={item}>
+          <label className="block text-sm font-semibold mb-2.5" style={{ color: "#EDEDEF" }}>
+            Devis acceptés{" "}
+            <span className="font-normal text-xs" style={{ color: "#4A5170" }}>
+              (traitements effectivement démarrés)
             </span>
           </label>
-          <div className="relative">
-            <input
-              type="number"
-              min="0"
-              max={data.devisRemis || undefined}
-              placeholder="ex: 26"
-              value={data.devisAcceptes || ""}
-              onChange={e => handleChange("devisAcceptes", e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-              onFocus={e => Object.assign(e.currentTarget.style, inputFocusStyle)}
-              onBlur={e => Object.assign(e.currentTarget.style, inputStyle)}
-            />
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm"
-              style={{ color: "#8A8F98", fontFamily: "'JetBrains Mono', monospace" }}>
-              devis
-            </div>
-          </div>
-          {data.devisAcceptes > data.devisRemis && data.devisRemis > 0 && (
-            <motion.p
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              className="text-xs mt-2"
-              style={{ color: "#EF4444" }}
-            >
-              ⚠ Les devis acceptés ne peuvent pas dépasser les devis remis
-            </motion.p>
-          )}
-        </div>
+          <NumberInput
+            id="devis-acceptes"
+            value={data.devisAcceptes}
+            onChange={v => handleChange("devisAcceptes", Math.min(v, data.devisRemis || v))}
+            placeholder="ex : 9"
+            suffix="acceptés / mois"
+            max={data.devisRemis || undefined}
+          />
+        </motion.div>
 
-        {/* Prix moyen */}
-        <div className="glass-card p-5">
-          <label className="block text-sm font-medium mb-3" style={{ color: "#B0B5BF" }}>
-            Prix moyen d&apos;un devis
-            <span className="ml-2 text-xs px-2 py-0.5 rounded-full"
-              style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B", fontFamily: "'JetBrains Mono', monospace" }}
-            >
-              valeur
-            </span>
-          </label>
-          <div className="relative">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold"
-              style={{ color: "#8A8F98", fontFamily: "'JetBrains Mono', monospace" }}>
-              €
-            </div>
-            <input
-              type="number"
-              min="0"
-              placeholder="ex: 850"
-              value={data.prixMoyen || ""}
-              onChange={e => handleChange("prixMoyen", e.target.value)}
-              className={inputClass + " pl-10"}
-              style={inputStyle}
-              onFocus={e => Object.assign(e.currentTarget.style, inputFocusStyle)}
-              onBlur={e => Object.assign(e.currentTarget.style, inputStyle)}
-            />
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Preview of loss */}
-      <AnimatePresence>
-        {isValid && (data.devisRemis - data.devisAcceptes) > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.97 }}
-            variants={item}
-            className="mb-6 p-4 rounded-xl flex items-center gap-3"
+        {/* Conversion live */}
+        <motion.div variants={item}>
+          <div
+            className="rounded-xl p-4 transition-all duration-300"
             style={{
-              background: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.2)",
+              background: info ? info.bg : "rgba(255,255,255,0.025)",
+              border: `1.5px solid ${info ? info.borderColor : "rgba(255,255,255,0.08)"}`,
             }}
           >
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: "rgba(239, 68, 68, 0.15)" }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="#EF4444">
-                <path d="M8 1L15 13H1L8 1Z" stroke="#EF4444" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-                <line x1="8" y1="6" x2="8" y2="9" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
-                <circle cx="8" cy="11" r="0.75" fill="#EF4444"/>
-              </svg>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="text-xs font-semibold uppercase tracking-widest mb-1"
+                  style={{ color: "#4A5170", fontFamily: "'JetBrains Mono', monospace" }}>
+                  Votre taux de conversion
+                </div>
+                <div className="text-4xl font-black leading-none mb-2"
+                  style={{ color: info?.color ?? "#4A5170", letterSpacing: "-1.5px", fontFamily: "'Inter', sans-serif" }}>
+                  {taux !== null ? `${taux}%` : "—"}
+                </div>
+                <div className="h-2 rounded-full overflow-hidden mb-1.5"
+                  style={{ background: "rgba(255,255,255,0.05)" }}>
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ background: info ? barColor : "transparent" }}
+                    animate={{ width: taux !== null ? `${taux}%` : "0%" }}
+                    transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] as [number,number,number,number] }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs" style={{ color: "#4A5170" }}>
+                  <span>0%</span>
+                  <span>Moy. nationale : 48%</span>
+                  <span>100%</span>
+                </div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <AnimatePresence mode="wait">
+                  {info ? (
+                    <motion.div key={info.badge}
+                      initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
+                      transition={{ duration: 0.25 }}>
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold mb-2"
+                        style={{ background: info.badgeBg, color: info.badgeColor }}>
+                        {info.badge}
+                      </div>
+                      <div className="text-xs leading-relaxed" style={{ color: "#4A5170" }}
+                        dangerouslySetInnerHTML={{ __html: info.note }} />
+                    </motion.div>
+                  ) : (
+                    <motion.div key="empty"
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                      <div className="text-xs" style={{ color: "#4A5170" }}>
+                        Renseignez vos chiffres<br/>pour voir votre situation.
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium" style={{ color: "#EDEDEF" }}>
-                CA potentiellement perdu ce mois
-              </p>
-              <p className="text-xl font-bold mt-0.5"
-                style={{ color: "#EF4444", fontFamily: "'JetBrains Mono', monospace" }}>
-                -{((data.devisRemis - data.devisAcceptes) * data.prixMoyen).toLocaleString("fr-FR")} €
-              </p>
+          </div>
+        </motion.div>
+
+        {/* Prix moyen */}
+        <motion.div variants={item}>
+          <label className="block text-sm font-semibold mb-2.5" style={{ color: "#EDEDEF" }}>
+            Prix moyen de vos devis
+          </label>
+          <div style={{ opacity: preciseOpen ? 0.35 : 1, pointerEvents: preciseOpen ? "none" : "auto", transition: "opacity 0.2s" }}>
+            <NumberInput
+              id="prix-moyen"
+              value={data.prixMoyen}
+              onChange={v => handleChange("prixMoyen", v)}
+              placeholder="ex : 900"
+              suffix="€ / devis"
+              step={50}
+            />
+          </div>
+        </motion.div>
+
+        {/* Precise mode */}
+        <motion.div variants={item}>
+          <div
+            className="rounded-xl overflow-hidden cursor-pointer"
+            style={{ background: "rgba(79,142,247,0.05)", border: "1px solid rgba(79,142,247,0.12)" }}
+          >
+            <div className="flex items-center gap-3 p-4" onClick={togglePrecise}>
+              <input
+                type="checkbox"
+                checked={preciseOpen}
+                onChange={togglePrecise}
+                onClick={e => e.stopPropagation()}
+                className="w-4 h-4 cursor-pointer flex-shrink-0"
+                style={{ accentColor: "#6C74E8" }}
+              />
+              <label className="flex-1 text-sm font-semibold cursor-pointer flex items-center gap-2 flex-wrap" style={{ color: "#EDEDEF" }}>
+                Calculer mon prix moyen automatiquement
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                  style={{ background: "rgba(255,149,0,0.12)", color: "#FF9500" }}>
+                  Facultatif
+                </span>
+              </label>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+            <AnimatePresence>
+              {preciseOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] as [number,number,number,number] }}
+                  className="overflow-hidden"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="px-4 pb-4 pt-0" style={{ borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+                    <p className="text-xs mb-3 pt-3" style={{ color: "#8A8F98" }}>
+                      Entrez le montant de chaque devis que vous avez remis cette semaine. La moyenne sera calculée et utilisée comme prix de référence.
+                    </p>
+                    <div className="grid gap-2 mb-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))" }}>
+                      {preciseValues.map((v, i) => (
+                        <input
+                          key={i}
+                          type="number"
+                          placeholder={["800 €", "1 200 €", "650 €"][i] ?? "€"}
+                          value={v}
+                          onChange={e => handlePreciseChange(i, e.target.value)}
+                          className="rounded-lg text-sm font-semibold outline-none w-full transition-all duration-200"
+                          style={{
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1.5px solid rgba(255,255,255,0.12)",
+                            color: "#EDEDEF",
+                            padding: "10px 12px",
+                            fontFamily: "'Inter', sans-serif",
+                          }}
+                          onFocus={e => (e.currentTarget.style.borderColor = "#6C74E8")}
+                          onBlur={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)")}
+                        />
+                      ))}
+                    </div>
+                    {preciseValues.length < 15 && (
+                      <button
+                        type="button"
+                        onClick={addPreciseInput}
+                        className="inline-flex items-center gap-2 text-sm font-semibold cursor-pointer transition-colors duration-200 px-3 py-2 rounded-lg"
+                        style={{ color: "#8A8F98", background: "transparent", border: "1.5px dashed rgba(255,255,255,0.12)" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = "#6C74E8"; e.currentTarget.style.color = "#6C74E8"; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "#8A8F98"; }}
+                      >
+                        + Ajouter un devis
+                      </button>
+                    )}
+                    {preciseAvg !== null && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center gap-3 mt-3 p-3 rounded-xl"
+                        style={{ background: "rgba(0,214,143,0.06)", border: "1px solid rgba(0,214,143,0.15)" }}
+                      >
+                        <span className="text-sm flex-1" style={{ color: "#8A8F98" }}>Prix moyen calculé</span>
+                        <span className="text-xl font-black" style={{ color: "#00D68F", letterSpacing: "-0.5px" }}>
+                          {preciseAvg.toLocaleString("fr-FR")} €
+                        </span>
+                      </motion.div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      </div>
 
       {/* Next button */}
-      <motion.div variants={item}>
+      <motion.div variants={item} className="mt-5">
         <motion.button
-          onClick={onNext}
+          onClick={() => {
+            if (preciseOpen && preciseAvg) {
+              onChange({ ...data, prixMoyen: preciseAvg });
+            }
+            onNext();
+          }}
           disabled={!isValid}
           whileHover={isValid ? { scale: 1.02 } : {}}
           whileTap={isValid ? { scale: 0.98 } : {}}
           transition={{ type: "spring", stiffness: 400, damping: 17 }}
-          className="w-full py-4 rounded-xl font-semibold text-base flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer disabled:cursor-not-allowed"
+          className="w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all duration-300 cursor-pointer disabled:cursor-not-allowed"
           style={{
-            background: isValid
-              ? "linear-gradient(135deg, #6C74E8 0%, #8B93FF 100%)"
-              : "rgba(255,255,255,0.06)",
-            color: isValid ? "white" : "#8A8F98",
+            background: isValid ? "linear-gradient(135deg, #6C74E8 0%, #8B93FF 100%)" : "rgba(255,255,255,0.06)",
+            color: isValid ? "white" : "#4A5170",
             boxShadow: isValid ? "0 4px 24px rgba(108, 116, 232, 0.4)" : "none",
+            fontSize: "16px",
           }}
         >
-          Étape suivante
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M3 8H13M9 4L13 8L9 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          Étape suivante{" "}
+          <span style={{ fontSize: "18px" }}>›</span>
         </motion.button>
       </motion.div>
     </motion.div>
